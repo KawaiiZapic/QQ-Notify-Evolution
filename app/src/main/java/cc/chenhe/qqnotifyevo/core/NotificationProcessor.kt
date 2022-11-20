@@ -6,27 +6,28 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
-import android.service.notification.StatusBarNotification
+import android.graphics.Color
+import android.graphics.drawable.Drawable
+import android.util.Log
 import androidx.annotation.VisibleForTesting
 import androidx.core.app.NotificationCompat
 import androidx.core.app.Person
-import androidx.core.content.ContextCompat
 import androidx.core.content.pm.ShortcutInfoCompat
-import androidx.core.content.pm.ShortcutManagerCompat
 import androidx.core.graphics.drawable.IconCompat
 import androidx.core.graphics.drawable.toBitmap
-import cc.chenhe.qqnotifyevo.R
-import cc.chenhe.qqnotifyevo.preference.PreferenceAty
 import cc.chenhe.qqnotifyevo.utils.*
-import timber.log.Timber
-import java.util.*
+import de.robv.android.xposed.XposedBridge
 import java.util.regex.Matcher
 import java.util.regex.Pattern
 
 abstract class NotificationProcessor(context: Context) {
 
     companion object {
-        private const val TAG = "NotificationProcessor"
+
+        private lateinit var ic_notify_qq: IconCompat
+        private lateinit var ic_notify_qzone: IconCompat
+
+        private const val TAG = "QNotifyEvoXP"
 
         /**
          * 用于在优化后的通知中保留原始来源标记。通过 [Notification.extras] 提取。
@@ -121,7 +122,7 @@ abstract class NotificationProcessor(context: Context) {
          */
         @VisibleForTesting
         val bindingQQMsgContextPattern: Pattern =
-            Pattern.compile("^有 (?:\\d+) 个联系人给你发过来(\\d+)条新消息$")
+            Pattern.compile("^有 \\d+ 个联系人给你发过来(\\d+)条新消息$")
 
         /**
          * 匹配关联 QQ 消息 title. 用于提取未读消息个数。
@@ -162,40 +163,23 @@ abstract class NotificationProcessor(context: Context) {
 
     protected val ctx: Context = context.applicationContext
 
-    private val qzoneSpecialTitle = context.getString(R.string.notify_qzone_special_title)
+    private val qzoneSpecialTitle = "特别关心动态"
 
     private val qqHistory = ArrayList<Conversation>()
     private val qqLiteHistory = ArrayList<Conversation>()
     private val qqHdHistory = ArrayList<Conversation>()
     private val timHistory = ArrayList<Conversation>()
 
+    fun injectIcons(qq: IconCompat, qzone: IconCompat) {
+        ic_notify_qq = qq;
+        ic_notify_qzone = qzone;
+    }
+
     private val avatarManager =
-        AvatarManager.get(getAvatarDiskCacheDir(ctx), getAvatarCachePeriod(context))
+        AvatarManager.get(getAvatarDiskCacheDir(ctx), getAvatarCachePeriod())
 
     fun setAvatarCachePeriod(period: Long) {
         avatarManager.period = period
-    }
-
-    /**
-     * 清空此来源所有会话（包括 QQ 空间）历史记录。
-     *
-     * @param tag 来源标记。
-     */
-    fun clearHistory(tag: Tag) {
-        Timber.tag(TAG).v("Clear history. tag=$tag")
-        getHistoryMessage(tag).clear()
-    }
-
-    /**
-     * 清空此来源特别关心 QQ 空间动态推送历史记录。不清除与我相关的动态或其他聊天消息。
-     *
-     * @param tag 来源标记。
-     */
-    private fun clearQzoneSpecialHistory(tag: Tag) {
-        Timber.tag(TAG).d("Clear QZone history. tag=$tag")
-        getHistoryMessage(tag).removeIf {
-            it.name == qzoneSpecialTitle
-        }
     }
 
     /**
@@ -220,7 +204,6 @@ abstract class NotificationProcessor(context: Context) {
         context: Context,
         tag: Tag,
         conversation: Conversation,
-        sbn: StatusBarNotification,
         original: Notification
     ): Notification
 
@@ -239,7 +222,6 @@ abstract class NotificationProcessor(context: Context) {
         tag: Tag,
         channel: NotifyChannel,
         conversation: Conversation,
-        sbn: StatusBarNotification,
         original: Notification
     ): Notification
 
@@ -254,24 +236,20 @@ abstract class NotificationProcessor(context: Context) {
     fun resolveNotification(
         context: Context,
         packageName: String,
-        sbn: StatusBarNotification
+        sbn: Notification
     ): Notification? {
-        val original = sbn.notification ?: return null
         val tag = getTagFromPackageName(packageName)
         if (tag == Tag.UNKNOWN) {
-            Timber.tag(TAG).d("Unknown tag, skip. pkgName=$packageName")
+            XposedBridge.log("Unknown tag, skip. pkgName=$packageName")
             return null
         }
 
-        val title = original.extras.getString(Notification.EXTRA_TITLE)
-        val content = original.extras.getString(Notification.EXTRA_TEXT)
-        val ticker = original.tickerText?.toString()
+        val title = sbn.extras.getString(Notification.EXTRA_TITLE)
+        val content = sbn.extras.getString(Notification.EXTRA_TEXT)
+        val ticker = sbn.tickerText?.toString()
 
         val isMulti = isMulti(ticker, content)
         val isQzone = isQzone(title)
-
-        Timber.tag(TAG)
-            .v("Title: $title; Ticker: $ticker; QZone: $isQzone; Multi: $isMulti; Content: $content")
 
         if (isMulti) {
             onMultiMessageDetected(ticker?.contains("关联QQ号-") ?: false)
@@ -279,7 +257,7 @@ abstract class NotificationProcessor(context: Context) {
 
         // 隐藏消息详情
         if (isHidden(ticker, content)) {
-            Timber.tag(TAG).v("Hidden message content, skip.")
+            XposedBridge.log("Hidden message content, skip.")
             return null
         }
 
@@ -287,17 +265,17 @@ abstract class NotificationProcessor(context: Context) {
         tryResolveQzone(
             context,
             tag,
-            original,
+            sbn,
             isQzone,
             title,
             ticker,
             content
         )?.also { conversation ->
-            return renewQzoneNotification(context, tag, conversation, sbn, original)
+            return renewQzoneNotification(context, tag, conversation, sbn)
         }
 
         if (ticker == null) {
-            Timber.tag(TAG).i("Ticker is null, skip.")
+            XposedBridge.log("Ticker is null, skip.")
             return null
         }
 
@@ -305,40 +283,40 @@ abstract class NotificationProcessor(context: Context) {
         tryResolveGroupMsg(
             context,
             tag,
-            original,
+            sbn,
             isMulti,
             title,
             ticker,
             content
         )?.also { (channel, conversation) ->
-            return renewConversionNotification(context, tag, channel, conversation, sbn, original)
+            return renewConversionNotification(context, tag, channel, conversation, sbn)
         }
 
         // 私聊消息
         tryResolvePrivateMsg(
             context,
             tag,
-            original,
+            sbn,
             isMulti,
             title,
             ticker
         )?.also { (channel, conversation) ->
-            return renewConversionNotification(context, tag, channel, conversation, sbn, original)
+            return renewConversionNotification(context, tag, channel, conversation, sbn)
         }
 
         // 关联账号消息
         tryResolveBindingMsg(
             context,
             tag,
-            original,
+            sbn,
             title,
             ticker,
             content
         )?.also { (channel, conversation) ->
-            return renewConversionNotification(context, tag, channel, conversation, sbn, original)
+            return renewConversionNotification(context, tag, channel, conversation, sbn)
         }
 
-        Timber.tag(TAG).w("[None] Not match any pattern.")
+        XposedBridge.log("[None] Not match any pattern.")
         return null
     }
 
@@ -384,7 +362,7 @@ abstract class NotificationProcessor(context: Context) {
                 )
                 // 由于特别关心动态推送的通知没有显示未读消息个数，所以这里无法提取并删除多余的历史消息。
                 // Workaround: 在通知删除回调下来匹配并清空特别关心动态历史记录。
-                Timber.tag(TAG).d("[QZoneSpecial] Ticker: $ticker")
+                Log.d(TAG, "[QZoneSpecial] Ticker: $ticker")
             } else {
                 // 与我相关的动态
                 getNotifyLargeIcon(context, original)?.also {
@@ -392,7 +370,7 @@ abstract class NotificationProcessor(context: Context) {
                 }
                 conversation = addMessage(
                     tag,
-                    context.getString(R.string.notify_qzone_title),
+                    "空间动态",
                     content,
                     null,
                     avatarManager.getAvatar(CONVERSATION_NAME_QZONE.hashCode()),
@@ -401,7 +379,7 @@ abstract class NotificationProcessor(context: Context) {
                     false
                 )
                 deleteOldMessage(conversation, num)
-                Timber.tag(TAG).d("[QZone] Ticker: $ticker")
+                Log.d(TAG, "[QZone] Ticker: $ticker")
             }
             return conversation
         }
@@ -430,9 +408,8 @@ abstract class NotificationProcessor(context: Context) {
                     original.contentIntent, original.deleteIntent, special
                 )
                 deleteOldMessage(conversation, if (isMulti) 0 else matchMessageNum(title))
-                Timber.tag(TAG)
-                    .d("[${if (special) "GroupS" else "Group"}] Name: $name; Group: $groupName; Text: $text")
-                val channel = if (special && specialGroupMsgChannel(ctx))
+                Log.d(TAG, "[${if (special) "GroupS" else "Group"}] Name: $name; Group: $groupName; Text: $text")
+                val channel = if (special && specialGroupMsgChannel())
                     NotifyChannel.FRIEND_SPECIAL
                 else
                     NotifyChannel.GROUP
@@ -462,10 +439,10 @@ abstract class NotificationProcessor(context: Context) {
                 )
                 deleteOldMessage(conversation, if (isMulti) 0 else matchMessageNum(titleMatcher))
                 return if (special) {
-                    Timber.tag(TAG).d("[FriendS] Name: $name; Text: $text")
+                    Log.d(TAG, "[FriendS] Name: $name; Text: $text")
                     Pair(NotifyChannel.FRIEND_SPECIAL, conversation)
                 } else {
-                    Timber.tag(TAG).d("[Friend] Name: $name; Text: $text")
+                    Log.d(TAG, "[Friend] Name: $name; Text: $text")
                     Pair(NotifyChannel.FRIEND, conversation)
                 }
             }
@@ -482,36 +459,16 @@ abstract class NotificationProcessor(context: Context) {
                 val account = matcher.group(1) ?: ""
                 val text = matcher.group(2) ?: return null
                 val conversation = addMessage(
-                    tag, context.getString(R.string.notify_binding_msg_title, account),
+                    tag, "关联账号 $account",
                     text, null, getNotifyLargeIcon(context, original), original.contentIntent,
                     original.deleteIntent, false
                 )
                 deleteOldMessage(conversation, matchBindingMsgNum(title, content))
-                Timber.tag(TAG).d("[Binding] Account: $account; Text: $text")
+                Log.d(TAG, "[Binding] Account: $account; Text: $text")
                 return Pair(NotifyChannel.FRIEND, conversation)
             }
         }
         return null
-    }
-
-    fun onNotificationRemoved(sbn: StatusBarNotification, reason: Int) {
-        val tag =
-            Tag.valueOf(sbn.notification.extras.getString(NOTIFICATION_EXTRA_TAG, Tag.UNKNOWN.name))
-        if (tag == Tag.UNKNOWN) return
-        val title = sbn.notification.extras.getString(Notification.EXTRA_TITLE)
-        Timber.tag(TAG).v("onNotificationRemoved: Tag=$tag, Reason=$reason, Title=$title")
-        if (title == qzoneSpecialTitle) {
-            // 清除 QQ 空间特别关心动态推送历史记录
-            clearQzoneSpecialHistory(tag)
-        }
-        // 清除关联的 long live shortcut
-        // 因为 QQ 的限制，shortcut 并不能直接跳转对话框，仅用于满足 Android 11 「会话」通知的要求
-        // 所以保留它没有任何意义
-        sbn.notification.shortcutId?.also { shortcutId ->
-            if (shortcutId.isNotEmpty()) {
-                ShortcutManagerCompat.removeLongLivedShortcuts(ctx, listOf(shortcutId))
-            }
-        }
     }
 
     /**
@@ -601,14 +558,14 @@ abstract class NotificationProcessor(context: Context) {
     ): Notification {
         val channelId = getChannelId(channel)
 
-        val color = ContextCompat.getColor(
-            context,
-            if (channel == NotifyChannel.QZONE) R.color.colorQzoneIcon else R.color.colorConversationIcon
-        )
-
         @Suppress("DEPRECATION")
         val builder = NotificationCompat.Builder(context, channelId)
-            .setColor(color)
+            .setColor(
+                if (channel == NotifyChannel.QZONE)
+                    Color.argb(0xff, 0xfe, 0xce, 0x00)
+                else
+                    Color.argb(0xff, 0x1E, 0xD0, 0xFC)
+            )
             .setAutoCancel(true)
             .setShowWhen(true)
             .setStyle(style)
@@ -627,7 +584,13 @@ abstract class NotificationProcessor(context: Context) {
         if (ticker != null)
             builder.setTicker(ticker)
 
-        setIcon(context, builder, tag, channel == NotifyChannel.QZONE)
+
+        if (channel == NotifyChannel.QZONE) {
+            builder.setSmallIcon(ic_notify_qzone)
+        } else {
+            builder.setSmallIcon(ic_notify_qq)
+        }
+
 
         return buildNotification(builder, shortcutInfo).apply {
             extras.putString(NOTIFICATION_EXTRA_TAG, tag.name)
@@ -647,15 +610,15 @@ abstract class NotificationProcessor(context: Context) {
     ): Notification {
         val style = NotificationCompat.MessagingStyle(
             Person.Builder()
-                .setName(context.getString(R.string.notify_qzone_title)).build()
+                .setName("空间动态").build()
         )
         conversation.messages.forEach { msg ->
             style.addMessage(msg)
         }
         val num = conversation.messages.size
         val subtext =
-            if (num > 1) context.getString(R.string.notify_subtext_qzone_num, num) else null
-        Timber.tag(TAG).v("Create QZone notification for $num messages.")
+            if (num > 1) "$num 条新动态" else null
+        Log.v(TAG, "Create QZone notification for $num messages.")
         return createNotification(
             context, tag, NotifyChannel.QZONE, style,
             avatarManager.getAvatar(CONVERSATION_NAME_QZONE.hashCode()), original, subtext
@@ -685,8 +648,8 @@ abstract class NotificationProcessor(context: Context) {
         }
         val num = conversation.messages.size
         val subtext =
-            if (num > 1) context.getString(R.string.notify_subtext_message_num, num) else null
-        Timber.tag(TAG).v("Create conversation notification for $num messages.")
+            if (num > 1) "$num 条新消息" else null
+        Log.v(TAG, "Create conversation notification for $num messages.")
 
         val shortcut = ShortcutInfoCompat.Builder(context, conversation.name)
             .setIsConversation()
@@ -697,9 +660,9 @@ abstract class NotificationProcessor(context: Context) {
                 avatarManager.getAvatar(conversation.name.hashCode())
                     ?.let { IconCompat.createWithBitmap(it) }
             )
-            .setIntent(
+            .setIntent( // just a placeholder, use any activity here is okay
                 context.packageManager.getLaunchIntentForPackage(tag.pkg)
-                    ?: Intent(context, PreferenceAty::class.java).apply {
+                    ?: Intent(context, null).apply {
                         action = Intent.ACTION_MAIN
                     }
             )
@@ -714,14 +677,12 @@ abstract class NotificationProcessor(context: Context) {
     private fun NotificationCompat.MessagingStyle.addMessage(message: Message) {
         var name = message.person.name!!
 
-        name = formatNicknameIfNeeded(name)
-
-        if (message.special && showSpecialPrefix(ctx)) {
+        if (message.special && showSpecialPrefix()) {
             // 添加特别关心或关注前缀
             name = if (isGroupConversation)
-                ctx.getString(R.string.special_group_prefix) + name
+                "[特别关注] $name"
             else
-                ctx.getString(R.string.special_prefix) + name
+                "[特别关心] $name"
         }
 
         val person = if (name == message.person.name) {
@@ -730,25 +691,6 @@ abstract class NotificationProcessor(context: Context) {
             message.person.clone(name)
         }
         addMessage(message.content, message.time, person)
-    }
-
-    private fun formatNicknameIfNeeded(name: CharSequence): CharSequence {
-        if (!wrapNickname(ctx)) {
-            return name
-        }
-        var newName = name
-        val wrapper = nicknameWrapper(ctx)
-        if (wrapper != null) {
-            newName = wrapper.replace("\$n", name.toString())
-            if (newName == wrapper) {
-                Timber.tag(TAG).e("Nickname wrapper is invalid, reset preference. wrapper=$wrapper")
-                resetNicknameWrapper(ctx)
-            }
-        } else {
-            Timber.tag(TAG).e("Nickname wrapper is null, reset preference.")
-            resetNicknameWrapper(ctx)
-        }
-        return newName
     }
 
     private fun Person.clone(newName: CharSequence? = null): Person {
@@ -768,27 +710,20 @@ abstract class NotificationProcessor(context: Context) {
         tag: Tag,
         isQzone: Boolean
     ) {
-        if (isQzone) {
-            builder.setSmallIcon(R.drawable.ic_notify_qzone)
-            return
-        }
-        when (getIconMode(context)) {
-            ICON_AUTO -> when (tag) {
-                Tag.QQ, Tag.QQ_HD, Tag.QQ_LITE -> R.drawable.ic_notify_qq
-                Tag.TIM -> R.drawable.ic_notify_tim
-                else -> R.drawable.ic_notify_qq
-            }
-            ICON_QQ -> R.drawable.ic_notify_qq
-            ICON_TIM -> R.drawable.ic_notify_tim
-            else -> R.drawable.ic_notify_qq
-        }.let { iconRes -> builder.setSmallIcon(iconRes) }
+        if (ic_notify_qq == null || ic_notify_qzone == null) return;
+        builder.setSmallIcon((
+                (if (isQzone)
+                    ic_notify_qzone
+                else
+                    ic_notify_qq)!!
+            )
+        )
     }
-
 
     /**
      * 获取历史消息。
      */
-    protected fun getHistoryMessage(tag: Tag): ArrayList<Conversation> {
+    private fun getHistoryMessage(tag: Tag): ArrayList<Conversation> {
         return when (tag) {
             Tag.TIM -> timHistory
             Tag.QQ_LITE -> qqLiteHistory
@@ -845,8 +780,7 @@ abstract class NotificationProcessor(context: Context) {
             return
         if (conversation.messages.size <= maxMessageNum)
             return
-        Timber.tag(TAG)
-            .d("Delete old messages. conversation: ${conversation.name}, max: $maxMessageNum")
+        Log.d(TAG, "Delete old messages. conversation: ${conversation.name}, max: $maxMessageNum")
         while (conversation.messages.size > maxMessageNum) {
             conversation.messages.removeAt(0)
         }

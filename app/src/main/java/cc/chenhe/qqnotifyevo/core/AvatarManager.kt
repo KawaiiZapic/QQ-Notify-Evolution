@@ -2,8 +2,8 @@ package cc.chenhe.qqnotifyevo.core
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.util.Log
 import androidx.collection.LruCache
-import timber.log.Timber
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -82,8 +82,7 @@ class AvatarManager private constructor(
                     lru.put(conversionId, it)
                 }
             } catch (e: Exception) {
-                Timber.tag(TAG)
-                    .e("Decode avatar file error, delete the cache. conversionId=$conversionId")
+                Log.e(TAG, "Decode avatar file error, delete the cache. conversionId=$conversionId")
                 e.printStackTrace()
                 file.delete()
                 lru.remove(conversionId)
@@ -91,16 +90,5 @@ class AvatarManager private constructor(
             }
         }
         return null
-    }
-
-    /**
-     * 清空磁盘与内存缓存。
-     */
-    fun clearCache() {
-        Timber.tag(TAG).d("Clear avatar cache in disk and memory.")
-        cacheDir.listFiles()?.forEach { f ->
-            f?.deleteRecursively()
-        }
-        lru.evictAll()
     }
 }

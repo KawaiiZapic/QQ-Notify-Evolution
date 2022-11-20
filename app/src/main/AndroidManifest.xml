@@ -1,11 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:tools="http://schemas.android.com/tools"
-    package="cc.chenhe.qqnotifyevo">
-
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    package="moe.zapic.xposedqqnotify">
 
     <queries>
         <package android:name="com.tencent.mobileqq" />
@@ -14,8 +9,8 @@
         <package android:name="com.tencent.tim" />
     </queries>
 
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <application
-        android:name="cc.chenhe.qqnotifyevo.MyApplication"
         android:allowBackup="true"
         android:autoRemoveFromRecents="true"
         android:excludeFromRecents="true"
@@ -26,76 +21,18 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
 
-        <service
-            android:name="cc.chenhe.qqnotifyevo.service.NotificationMonitorService"
-            android:exported="true"
-            android:label="@string/service_notify"
-            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
-            <intent-filter>
-                <action android:name="android.service.notification.NotificationListenerService" />
-
-            </intent-filter>
-        </service>
-        <service
-            android:name="cc.chenhe.qqnotifyevo.service.AccessibilityMonitorService"
-            android:exported="true"
-            android:label="@string/service_access"
-            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
-            <intent-filter>
-                <action android:name="android.accessibilityservice.AccessibilityService" />
-            </intent-filter>
-
-            <meta-data
-                android:name="android.accessibilityservice"
-                android:resource="@xml/accessibility" />
-        </service>
-
-        <!-- Nevo 插件服务 -->
-        <service
-            android:name=".service.NevoDecorator"
-            android:description="@string/nevo_desc"
-            android:directBootAware="true"
-            android:exported="true"
-            android:label="@string/nevo_name"
-            android:permission="com.oasisfeng.nevo.permission.BIND_DECORATOR_SERVICE"
-            tools:targetApi="N">
-            <intent-filter android:priority="5">
-                <action android:name="com.oasisfeng.nevo.Decorator" />
-            </intent-filter>
-
-            <meta-data
-                android:name="packages"
-                android:value="com.tencent.mobileqq|com.tencent.tim|com.tencent.qqlite|com.tencent.minihd.qq" />
-            <meta-data
-                android:name="settings.activity"
-                android:value="cc.chenhe.qqnotifyevo.preference.PreferenceAty" />
-        </service>
-
-        <receiver
-            android:name="cc.chenhe.qqnotifyevo.StaticReceiver"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED" />
-                <action android:name="dnotShowNevoMultiMsgTips" />
-            </intent-filter>
-        </receiver>
-
-        <activity
-            android:name=".preference.PreferenceAty"
-            android:excludeFromRecents="false"
-            android:exported="true"
-            android:label="@string/activity_splash"
-            android:launchMode="singleInstance">
-            <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
-                <category android:name="android.intent.category.LAUNCHER" />
-                <action android:name="android.intent.action.APPLICATION_PREFERENCES" />
-                <category android:name="android.intent.category.DEFAULT" />
-            </intent-filter>
-        </activity>
-
-        <service android:name=".service.UpgradeService" />
-
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true"/>
+        <meta-data
+            android:name="xposeddescription"
+            android:value="QQ Notification evolution"/>
+        <meta-data
+            android:name="xposedminversion"
+            android:value="82"/>
+        <meta-data
+            android:name="xposedscope"
+            android:resource="@array/xposedscope" />
     </application>
 
 </manifest>

@@ -6,11 +6,11 @@ String vName = getVersionName()
 logger.lifecycle("App Version: $vName ($vCode)")
 
 android {
-    compileSdkVersion 30
+    compileSdkVersion 33
     defaultConfig {
-        applicationId "cc.chenhe.qqnotifyevo"
+        applicationId "moe.zapic.xposedqqnotify"
         minSdkVersion 26
-        targetSdkVersion 30
+        targetSdkVersion 33
         versionCode vCode
         versionName vName
     }
@@ -45,21 +45,23 @@ android {
 }
 
 dependencies {
-    def lifecycle_version = "2.3.1"
+    def lifecycle_version = "2.5.1"
 
     implementation "androidx.lifecycle:lifecycle-viewmodel-ktx:$lifecycle_version"
     implementation "androidx.lifecycle:lifecycle-livedata-ktx:$lifecycle_version"
 
     implementation fileTree(include: ['*.jar'], dir: 'libs')
 
-    implementation 'androidx.constraintlayout:constraintlayout:2.1.0'
-    implementation "androidx.preference:preference-ktx:1.1.1"
-    implementation "androidx.core:core-ktx:1.6.0"
+    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
+    implementation "androidx.preference:preference-ktx:1.2.0"
+    implementation "androidx.core:core-ktx:1.9.0"
     implementation 'com.oasisfeng.nevo:sdk:2.0.0-rc01'
     implementation "com.jakewharton.timber:timber:5.0.0"
 
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.amshove.kluent:kluent-android:1.68'
+
+    compileOnly 'de.robv.android.xposed:api:82'
 }
 
 
